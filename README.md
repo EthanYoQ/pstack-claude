@@ -47,6 +47,10 @@ For a bug, it reproduces the failure, uses `how` and `why` to investigate, deleg
 - [Models and dependencies](docs/reference.md#configuration-and-dependencies)
 - [Maintenance and port scope](docs/reference.md#maintenance)
 
+## Data handling
+
+pstack is Markdown instructions, a session hook, and local scripts. It runs no server, collects no telemetry, and sends no data anywhere itself.
+
 ## Contributing
 
 Thanks for helping make this port better. Bug reports, documentation fixes, and runtime improvements are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the checks and where your change belongs. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
