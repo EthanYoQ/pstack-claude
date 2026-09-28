@@ -54,7 +54,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { deriveSkill } from "./generate.mjs";
+import { deriveSkill, loadLeadLines, loadModels } from "./generate.mjs";
 import { walk } from "./validate-skills.mjs";
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -360,6 +360,8 @@ function main() {
   const { substitutions, denylist } = parseSubstitutions(
     JSON.parse(readFileSync(join(repo, "tools/substitutions.json"), "utf8")),
   );
+  const models = loadModels(repo);
+  const leads = loadLeadLines(repo);
 
   const scratch = mkdtempSync(join(tmpdir(), "pstack-sync-"));
   try {
@@ -380,7 +382,7 @@ function main() {
       denylist,
       exclude: spec.exclude ?? [],
       carriedElsewhere: pathsOtherComponentsCarry(join(scratch, "clone"), upstream.components, component),
-      derive: (rel, text) => deriveSkill(join(spec.localPath, rel), text),
+      derive: (rel, text) => deriveSkill(join(spec.localPath, rel), text, models, leads),
       dryRun,
     });
 
