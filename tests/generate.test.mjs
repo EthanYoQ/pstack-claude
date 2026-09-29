@@ -448,6 +448,27 @@ describe("lead lines", () => {
     expect(() => codexNoteSkills(table("| how | fan-out |"))).toThrow("does not start with a backticked skill: | how |");
     expect(() => codexNoteSkills("no table\n")).toThrow('"| Skill | On Codex |" table header not found');
   });
+
+  test("a prompt stub points at codex-tools.md unless its skill carries the Codex preamble", () => {
+    const pointer = "through `poteto-mode/references/codex-tools.md`, including its Per-skill notes.";
+    expect(promptStub({ name: "tdd", menu: "m" }, { preamble: false })).toContain(pointer);
+    expect(promptStub({ name: "how", menu: "m" }, { preamble: true })).toBe(
+      "---\nname: how\ndescription: m\ndisable-model-invocation: true\n---\n\nInvoke the `how` skill and follow it.\n",
+    );
+  });
+
+  test("a prompt stub repeats the codex-tools.md pointer only when its skill lacks the stamped preamble", () => {
+    const { files } = plan(repoRoot);
+    const stubs = Object.keys(files).filter((rel) => rel.startsWith("plugins/pstack/.codex-plugin/prompts/"));
+    const pointsAtMapping = (rel) => files[rel].includes("codex-tools.md");
+    const carriesPreamble = (rel) => {
+      const skill = `plugins/pstack/skills/${basename(rel, ".md")}/SKILL.md`;
+      return readFileSync(join(repoRoot, skill), "utf8").includes("On Codex, read the [platform mapping]");
+    };
+    expect(stubs.filter(carriesPreamble).length).toBeGreaterThan(0);
+    expect(stubs.filter((rel) => !carriesPreamble(rel)).length).toBeGreaterThan(0);
+    for (const rel of stubs) expect({ rel, points: pointsAtMapping(rel) }).toEqual({ rel, points: !carriesPreamble(rel) });
+  });
 });
 
 describe("effort agents", () => {
@@ -694,6 +715,35 @@ describe("plan, changes, apply", () => {
     }
     const { files } = plan(root);
     for (const [file] of leadFiles) expect(files[file]).toBe(readFileSync(join(repoRoot, file), "utf8"));
+  });
+
+  test("two producers on one path compose", () => {
+    const root = repoCopy();
+    const manifest = "plugins/pstack/.claude-plugin/plugin.json";
+    const skill = "plugins/pstack/skills/how/SKILL.md";
+    const text = (rel) => readFileSync(join(root, rel), "utf8");
+    writeFileSync(
+      join(root, manifest),
+      JSON.stringify({ ...JSON.parse(text(manifest)), version: "0.0.1", agents: [] }, null, 2) + "\n",
+    );
+    writeFileSync(
+      join(root, skill),
+      text(skill)
+        .replace(`\n\n${leads.get(skill)}\n`, "\n")
+        .replace(/^- how explorer: .*$/m, "- how explorer: stale"),
+    );
+    const { files } = plan(root);
+    for (const rel of [manifest, skill]) expect(files[rel]).toBe(readFileSync(join(repoRoot, rel), "utf8"));
+  });
+
+  test("plan refuses a path two producers write whole with different text", () => {
+    const target = "poteto-mode/references/licenses/LICENSE";
+    PORTABLE_ASSETS.push({ source: "NOTICE-skills.md", target });
+    try {
+      expect(() => plan(repoRoot)).toThrow(`plugins/pstack/skills/${target} is planned twice with different text`);
+    } finally {
+      PORTABLE_ASSETS.pop();
+    }
   });
 
   test("problems reports a lead line in a file that does not own it", () => {

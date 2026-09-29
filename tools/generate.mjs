@@ -17,17 +17,22 @@
 //   fails by name.
 //   plugins/pstack/models.json (the model policy: role defaults, diverse panel,
 //   available slugs, Codex equivalents)
-//     -> each model-consuming skill's "## Models" section
-//     -> setup-pstack's override-sheet block and interrogate's reviewer table
+//     -> each model-consuming skill's "## Models" and "## Reasoning effort" sections
+//     -> setup-pstack's Models section and override-sheet block, and interrogate's reviewer table
 //     -> the "## Model names" section of poteto-mode/references/codex-tools.md
 //     -> one effort agent pair per level in plugins/pstack/effort-agents/
+//   the Per-skill notes table in poteto-mode/references/codex-tools.md
+//     -> the Codex preamble under the first heading of each listed skill's SKILL.md,
+//        and the codex-tools.md pointer in the prompt stub of every other public skill
+//   DRIVER_PLAYBOOKS -> the driver-skill line under each playbook's first heading
 //   plugins/pstack/{agents,effort-agents}/*.md -> the "agents" list in
 //     plugins/pstack/.claude-plugin/plugin.json (a list replaces the default
 //     agents/ directory, so it names every agent)
-//   plugins/pstack/agents/{poteto-agent,comment-sicko}.md, LICENSE,
-//   LICENSE-cursor-team-kit, and NOTICE-skills.md
+//   plugins/pstack/agents/comment-sicko.md, LICENSE, LICENSE-cursor-team-kit,
+//   and NOTICE-skills.md
 //     -> portable copies under poteto-mode/references/{agents,licenses}/
-//   No other claude-* slug may appear in skill prose; the scan below fails on strays.
+//   No other model name (a claude-* ID or a backticked family name) may appear
+//   in skill prose; the scan below fails on strays.
 //
 // Also validated: .agents/plugins/marketplace.json points at a real plugin
 // directory whose Codex manifest name matches (it carries no version; Codex
@@ -99,8 +104,8 @@ export function stampVersion(text, version, file) {
 // Every release heading reads "## <version> - <title>"; the current version
 // must have one. A bump without an entry (or an entry without a bump) ships a
 // release nobody can read about.
-export function assertChangesHeading(changes, version) {
-  const lines = changes.split("\n");
+export function assertChangesHeading(changelog, version) {
+  const lines = changelog.split("\n");
   const current = lines.find((line) => line.startsWith(`## ${version} `));
   if (!current) throw new Error(`CHANGES.md has no "## ${version} - <title>" heading`);
   const malformed = lines.filter((line) => /^## \d+\.\d+\.\d+/.test(line) && !/^## \d+\.\d+\.\d+ - \S/.test(line));
@@ -185,18 +190,18 @@ export function validatePluginLayout(pluginRoot) {
   // #58: a plugin's agents register under the plugin namespace, so a dispatch
   // of the bare name errors at runtime with "Agent type 'x' not found".
   const agents = pluginAgentPaths(pluginRoot).map((p) => basename(p, ".md"));
-  const problems = [];
+  const bareDispatches = [];
   for (const file of markdownFiles(join(pluginRoot, "skills"))) {
     readFileSync(file, "utf8").split("\n").forEach((line, i) => {
       for (const name of agents) {
         if (line.includes(`subagent_type: "${name}"`)) {
-          problems.push(`${relative(pluginRoot, file)}:${i + 1}: subagent_type: "${name}" (use "pstack:${name}")`);
+          bareDispatches.push(`${relative(pluginRoot, file)}:${i + 1}: subagent_type: "${name}" (use "pstack:${name}")`);
         }
       }
     });
   }
-  if (problems.length) {
-    throw new Error(`plugin agents are dispatched by their namespaced name:\n${problems.join("\n")}`);
+  if (bareDispatches.length) {
+    throw new Error(`plugin agents are dispatched by their namespaced name:\n${bareDispatches.join("\n")}`);
   }
   // tools/sync.mjs writes an unresolved three-way merge with git's markers and
   // still advances the pin, so this check is what keeps it out of a release.
@@ -263,12 +268,17 @@ export function slashCommands(markdown, skillNames) {
 }
 
 // Optional Codex slash shortcut. Skills also link to the platform mapping so
-// native invocation and skills-only installs do not depend on these stubs.
-export function promptStub({ name, menu }) {
+// native invocation and skills-only installs do not depend on these stubs. A
+// skill with the stamped Codex preamble already sends the reader to the
+// mapping, so its stub does not say it again.
+export function promptStub({ name, menu }, { preamble } = {}) {
+  const pointer = preamble
+    ? ""
+    : " Resolve Claude tool names, Claude model names, and Claude built-in skills through " +
+      "`poteto-mode/references/codex-tools.md`, including its Per-skill notes.";
   return (
     `---\nname: ${name}\ndescription: ${menu}\ndisable-model-invocation: true\n---\n\n` +
-    `Invoke the \`${name}\` skill and follow it. Resolve Claude tool names, Claude model names, and ` +
-    "Claude built-in skills through `poteto-mode/references/codex-tools.md`, including its Per-skill notes.\n"
+    `Invoke the \`${name}\` skill and follow it.${pointer}\n`
   );
 }
 
@@ -715,55 +725,72 @@ export function strayModelSlugs(file, text, models) {
 // plugin, and one the command executes directly must be executable, or the
 // SessionStart hook fails silently for every user.
 export function validateHooks(hooksJson, { statOf, file = "hooks/hooks.json" }) {
-  const problems = [];
+  const faults = [];
   for (const [event, groups] of Object.entries(JSON.parse(hooksJson).hooks ?? {})) {
     for (const group of groups) {
       for (const hook of group.hooks ?? []) {
         const refs = [...hook.command.matchAll(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+)/g)].map((m) => m[1]);
         if (!refs.length) {
-          problems.push(`${event}: command does not reference \${CLAUDE_PLUGIN_ROOT}: ${hook.command}`);
+          faults.push(`${event}: command does not reference \${CLAUDE_PLUGIN_ROOT}: ${hook.command}`);
           continue;
         }
         const executed = hook.command.replace(/^"/, "").startsWith("${CLAUDE_PLUGIN_ROOT}/");
         refs.forEach((rel, i) => {
           const st = statOf(rel);
-          if (!st) problems.push(`${event}: ${rel} does not exist`);
-          else if (i === 0 && executed && !(st.mode & 0o111)) problems.push(`${event}: ${rel} is not executable`);
+          if (!st) faults.push(`${event}: ${rel} does not exist`);
+          else if (i === 0 && executed && !(st.mode & 0o111)) faults.push(`${event}: ${rel} is not executable`);
         });
       }
     }
   }
-  if (problems.length) throw new Error(`${file}:\n  ${problems.join("\n  ")}`);
+  if (faults.length) throw new Error(`${file}:\n  ${faults.join("\n  ")}`);
 }
 
 // Every file the generator writes, as exact text by repo-relative path,
 // computed from the sources under `root` without writing. Any other entry in
 // an owned directory is an orphan. Throws when a source cannot be planned.
-export function plan(root) {
+// Without `models`, plan loads the model policy from `root` itself.
+export function plan(root, models) {
   const read = (rel) => readFileSync(join(root, rel), "utf8");
   const version = read("VERSION").trim();
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`VERSION must be MAJOR.MINOR.PATCH, got "${version}"`);
   assertChangesHeading(read("CHANGES.md"), version);
-  const models = loadModels(root);
+  models ??= loadModels(root);
 
+  // A stamp edits the text planned so far for its path, so producers on one
+  // path compose. A put writes a whole file, so it throws rather than replace
+  // different text another producer planned.
   const files = {};
-  for (const file of VERSIONED_MANIFESTS) files[file] = stampVersion(read(file), version, file);
-  for (const file of new Set(regions(models).map((r) => r.file))) files[file] = applyRegions(file, read(file), models);
-  for (const [file, line] of loadLeadLines(root)) {
-    const stamped = stampLeadLine(files[file] ?? read(file), line);
-    if (stamped === null) throw new Error(`${file}: no heading to stamp its lead line under`);
-    files[file] = stamped;
+  const current = (rel) => files[rel] ?? read(rel);
+  const stamp = (rel, edit) => {
+    files[rel] = edit(current(rel));
+  };
+  const put = (rel, text) => {
+    if (Object.hasOwn(files, rel) && files[rel] !== text) throw new Error(`${rel} is planned twice with different text`);
+    files[rel] = text;
+  };
+  for (const file of VERSIONED_MANIFESTS) stamp(file, (text) => stampVersion(text, version, file));
+  for (const file of new Set(regions(models).map((r) => r.file))) stamp(file, (text) => applyRegions(file, text, models));
+  const leads = loadLeadLines(root);
+  for (const [file, line] of leads) {
+    stamp(file, (text) => {
+      const stamped = stampLeadLine(text, line);
+      if (stamped === null) throw new Error(`${file}: no heading to stamp its lead line under`);
+      return stamped;
+    });
   }
   for (const skill of slashCommands(read(COMMANDS_DOC), publicSkills(join(root, SKILLS)))) {
-    files[`${PROMPTS}/${skill.name}.md`] = promptStub(skill);
+    const preamble = leads.get(`${SKILLS}/${skill.name}/SKILL.md`) === CODEX_PREAMBLE;
+    put(`${PROMPTS}/${skill.name}.md`, promptStub(skill, { preamble }));
   }
   const agents = effortAgents(models.efforts, read(`${PLUGIN}/agents/poteto-agent.md`));
-  for (const agent of agents) files[`${EFFORT_AGENTS}/${agent.name}.md`] = agent.text;
-  const manifest = `${PLUGIN}/.claude-plugin/plugin.json`;
-  files[manifest] = stampAgentPaths(files[manifest], [
-    ...pluginAgentPaths(join(root, PLUGIN)).filter((path) => path.startsWith("./agents/")),
-    ...agents.map((agent) => `./effort-agents/${agent.name}.md`).sort(),
-  ]);
+  for (const agent of agents) put(`${EFFORT_AGENTS}/${agent.name}.md`, agent.text);
+  stamp(`${PLUGIN}/.claude-plugin/plugin.json`, (text) =>
+    stampAgentPaths(text, [
+      ...pluginAgentPaths(join(root, PLUGIN)).filter((path) => path.startsWith("./agents/")),
+      ...agents.map((agent) => `./effort-agents/${agent.name}.md`).sort(),
+    ]),
+  );
   for (const dir of OWNED_DIRS) {
     const outer = OWNED_DIRS.find((other) => dir.startsWith(`${other}/`));
     if (outer) throw new Error(`generator-owned directory ${dir} is nested inside ${outer}`);
@@ -777,7 +804,7 @@ export function plan(root) {
     if (!pathIsInside(realRoot, realpathSync(join(root, source)))) {
       throw new Error(`${source} resolves outside the repository through a symlink`);
     }
-    files[path] = read(source);
+    put(path, read(source));
   }
   return { files, ownedDirs: OWNED_DIRS };
 }
@@ -829,8 +856,8 @@ export function apply(root, intended, { log = console.log } = {}) {
 
 // Every cross-file contract the tree under `root` breaks, one message per
 // failing check. The checks read the tree, not the plan, so on a stale tree
-// they see the stale copies.
-export function problems(root) {
+// they see the stale copies. Without `models`, the policy load is one of the checks.
+export function problems(root, models) {
   const failures = [];
   const attempt = (check) => {
     try {
@@ -853,7 +880,7 @@ export function problems(root) {
     if (typeof manifest !== "object" || !manifest) throw new Error(`${codexManifestFile}: not a JSON object`);
     return manifest;
   });
-  const models = attempt(() => loadModels(root));
+  models ??= attempt(() => loadModels(root));
   const statOf = (rel) => (existsSync(join(pluginRoot, rel)) ? statSync(join(pluginRoot, rel)) : null);
   if (models) {
     attempt(() => {
@@ -906,7 +933,8 @@ function main() {
   const args = process.argv.slice(2);
   if (args.some((arg) => arg !== "--check")) throw new Error("usage: bun tools/generate.mjs [--check]");
   const check = args.includes("--check");
-  const intended = plan(repo);
+  const models = loadModels(repo);
+  const intended = plan(repo, models);
   const failures = [];
   let pending;
   try {
@@ -914,7 +942,7 @@ function main() {
   } catch (err) {
     failures.push(err.message);
   }
-  failures.push(...problems(repo));
+  failures.push(...problems(repo, models));
   if (check && pending?.length) {
     failures.push(
       "generated output is stale; run bun tools/generate.mjs:\n" +
