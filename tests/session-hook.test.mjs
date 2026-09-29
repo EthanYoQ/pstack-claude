@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { agentSkills } from "../tools/generate.mjs";
+
 const pluginRoot = fileURLToPath(new URL("../plugins/pstack/", import.meta.url));
 const mandate = readFileSync(join(pluginRoot, "hooks/session-start-context.md"), "utf8");
 const codexManifest = JSON.parse(readFileSync(join(pluginRoot, ".codex-plugin/plugin.json"), "utf8"));
@@ -64,6 +66,13 @@ describe("SessionStart hook", () => {
     expect(codexManifest.hooks).toBe("./hooks/codex-hooks.json");
     expect(sessionStart.claude.matcher).toBe("startup|resume|clear|compact");
     expect(sessionStart.codex.matcher).toBe("startup|resume|clear|compact");
+  });
+
+  test("names only skills that exist", () => {
+    const named = [...mandate.matchAll(/(?:pstack:|`\/)([a-z0-9-]+)/g)].map((m) => m[1]);
+    const skills = new Set(agentSkills(join(pluginRoot, "skills")).map(({ name }) => name));
+    expect(named).toContain("poteto-mode");
+    expect(named.filter((name) => !skills.has(name))).toEqual([]);
   });
 
   for (const arg of ["cursor", ""]) {

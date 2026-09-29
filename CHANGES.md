@@ -429,34 +429,6 @@ The multi-model panels (`arena` runners, `architect` runners, `interrogate` revi
 
 `plugin.json` no longer declares `dependencies: [{ "name": "plugin-dev", "marketplace": "claude-plugins-official" }]`, and `marketplace.json` drops the matching `allowCrossMarketplaceDependenciesOn`. The Claude Code desktop app passes every enabled plugin to the CLI as a session-only `--plugin-dir`, which strips marketplace identity (`pstack@inline`); a cross-marketplace dependency can never resolve in that mode, and the loader disables the entire plugin with `dependency-unsatisfied`. Result: pstack loaded in the CLI and the VS Code extension but silently vanished from desktop-app sessions. `optional: true` on a dependency entry passes `claude plugin validate` but is not honored by the loader (tested on 2.1.197). `plugin-dev` is now a documented manual install (README → Dependencies); skill bodies still route skill-authoring to `plugin-dev:skill-development` when it is present.
 
-## Codex port
-
-pstack also ships as a Codex plugin. The same generated `skills/` tree serves both runtimes, and both read the same skill prose. One mapping file handles the Claude-to-Codex translation, matching the structure the official `superpowers` plugin uses for Codex.
-
-pstack diverges from superpowers in one respect, and it is deliberate. superpowers writes its skill prose in tool-neutral language ("dispatch a subagent"), so no skill names a runtime tool and no per-skill note is needed. pstack instead keeps the upstream Claude-native prose intact, to stay in lockstep with upstream sync, and adds a one-line Platform note to each skill that names a Claude primitive. The note points at the mapping. Rewriting 44 upstream skills into neutral language would fork them from upstream and was rejected for that reason.
-
-**Added.**
-
-- `plugins/pstack/.codex-plugin/plugin.json` is the Codex plugin manifest (`skills: ./skills/`), with key-parity to the `superpowers` Codex manifest.
-- `.agents/plugins/marketplace.json` is the Codex marketplace manifest at the repo root, sourcing `./plugins/pstack` the way the Claude `.claude-plugin/marketplace.json` does.
-- `plugins/pstack/skills/poteto-mode/references/codex-tools.md` is the single Claude to Codex map. It covers tool actions (`Agent` becomes `spawn_agent` / `wait_agent` / `close_agent`, `AskUserQuestion` becomes plain text, the todolist becomes `update_plan`), the `multi_agent` config flag, subagent policy (Codex has no `poteto-agent` type, so dispatch a `spawn_agent` told to read `poteto-mode` first), model slugs (`claude-*` becomes your configured Codex models), the Claude built-ins pstack names (`run`, `verify`, `loop`, `plugin-dev:skill-development`), and the instructions file (`AGENTS.md`).
-
-**Platform notes (pointer-only edits).**
-
-- `skills/poteto-mode/SKILL.md` gained a "Platform Adaptation" section pointing at the mapping.
-- `skills/{architect,arena,automate-me,babysit,how,interrogate,reflect,why}/SKILL.md` each gained a one-line Platform note, since each names a Claude tool, a `claude-*` slug, or a Claude built-in. The pure-prose skills (the `principle-*` set, `tdd`, `figure-it-out`, and the cursor-team-kit imports) needed nothing.
-- `skills/setup-pstack/SKILL.md` gained a Codex branch. It writes `~/.codex/pstack-models.md` referenced from `~/.codex/AGENTS.md`, using Codex slugs instead of `claude-*`.
-
-**Commands.** The 24 `commands/*.md` files are Codex-compatible as written, no rewrite needed. Codex command discovery reads the `description` frontmatter and the filename and ignores the extra `name` key, and each body (`Invoke the <skill> skill and follow it`) is a valid Codex prompt. They surface as slash commands once the full plugin is installed in Codex. For the symlink-based install, drop the same files into `~/.codex/prompts/` for loose `/name` shortcuts alongside the symlinked skills.
-
-**Deliberately not ported.**
-
-- `agents/poteto-agent.md`. Codex has no `subagent_type`, so ad-hoc subagents are dispatched via `spawn_agent` told to read `poteto-mode` first. The mapping covers this.
-
-**Verified.** Codex discovers the skills and namespaces them under `pstack` (`pstack:poteto-mode` and so on) in a live session. Mapping resolution mid-task and `spawn_agent` fan-out follow the `superpowers` pattern and are worth confirming per session.
-
-**Maintenance.** The plugin version string now lives in three manifests: `plugins/pstack/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and `plugins/pstack/.codex-plugin/plugin.json`. A version bump must update all three; `tests/skill-collision-repro.sh` checks they match. `.agents/plugins/marketplace.json` carries no version field. The default panel quad is enumerated only in the four panel skills (`arena`, `architect`, `how`, `interrogate`) and the `setup-pstack` sheet — keep those lines grep-identical when models change (`tests/skill-collision-repro.sh` checks they match, deriving the canonical quad from `setup-pstack`'s `arena runners` row and reading `interrogate`'s from its reviewer table); `poteto-mode` and its references deliberately do not enumerate it. After a sync that touches `skills/poteto-mode/scripts/`, run `bun install --frozen-lockfile`, `bun test orch watch-pr`, and `bun run typecheck` from that directory. `hooks/session-start-context.md` names the direct-entry skills by name only; re-verify the list when a skill is renamed. `plugins/pstack/commands/` must not exist (see 0.9.13); upstream ships trampolines there and a sync that restores them duplicates every slash-menu row, so move any new ones to `.codex-plugin/prompts/`. No skill may carry `disable-model-invocation` in its frontmatter (see 0.9.8) — on a skill it makes the Skill tool refuse the invocation, breaking the SessionStart mandate. The 21 command-less `principle-*` leaves instead carry `user-invocable: false` (see 0.9.9) to stay out of the `/` menu while `poteto-mode` reads them by path: `grep -L 'user-invocable: false' plugins/pstack/skills/principle-*/SKILL.md` must print nothing, and no leaf may also carry `disable-model-invocation` (the pair cancels to a dead skill). Re-run `tests/skill-collision-repro.sh` after Claude Code upgrades; its behavioral leg depends on undocumented slash resolution. The script checks the static invariants: the absent `commands/` directory, Codex prompts having matching skills, the skill and leaf flags, version parity across the three manifests, and the default model quad's identity across the four panel skills and `setup-pstack`.
-
 ## 0.9.2 - sync against upstream `e46364b`
 
 Upstream pstack jumped from `0.1.0` → `0.9.2` between syncs. 30+ commits, including 11 new files.
