@@ -1,13 +1,22 @@
 ---
 name: formal-verify
-description: "Model-check a codebase's hand-written thread protocols with TLA+ and TLC: pick the race-prone parts (hand-overs, pipelines, shutdown, error lifecycles), model each one, prove the properties or get a counter-example, map the counter-example back to a line-level reproduction and a fix, and keep the model in CI. Use for /formal-verify, 'formally verify', 'model-check this', 'TLA+ this', 'find the race conditions', or when a concurrency bug cannot be reproduced by running the code."
+description: "Formally model and verify the tricky parts of a codebase: TLA+ and TLC for thread protocols (hand-overs, pipelines, shutdown, error lifecycles), Lean 4 for sequential invariants (index and window arithmetic, encoders, state machines). Pick the targets, model each one, prove the properties or get a counter-example, map the counter-example back to a line-level reproduction and a fix, and keep the model in CI. Use for /formal-verify, 'formally verify', 'model-check this', 'TLA+ this', 'prove this in Lean', 'find the race conditions', or when a bug cannot be reproduced by running the code."
 ---
 
 # Formal verify
 
-**Model the protocol, not the program. TLC exhausts every interleaving of a small instance; a counter-example is a line-level bug report, and a pass is evidence only when every property kills a mutant.**
+**Model the part, not the program. A model checker or a prover exhausts what a test samples; a counter-example is a line-level bug report, and a pass is evidence only when every property kills a mutant or every theorem is closed without `sorry`.**
 
-Tooling: Java and `tla2tools.jar`. [`scripts/tlc-matrix.sh`](scripts/tlc-matrix.sh) downloads the pinned jar, runs a matrix of constants and prints one PASS or FAIL line per run with its state count; [`scripts/tlc-trace.py`](scripts/tlc-trace.py) reduces a counter-example to what each step changed. On macOS `/usr/bin/java` is a stub that prints "Unable to locate a Java Runtime" and some scripts still exit 0 after it, so set `JAVA=/opt/homebrew/opt/openjdk/bin/java` (or your JDK) and check that at least one PASS line printed.
+Two tools, chosen by what can go wrong:
+
+| What can go wrong | Tool | Why |
+| --- | --- | --- |
+| An interleaving: a lost wakeup, a double free across threads, an item delivered twice or out of order, a close that never returns, an error reported by the wrong thread | TLA+ with TLC | TLC enumerates every interleaving of a small instance and returns the shortest failing one |
+| A value: an index or window boundary off by one, an invariant a transform breaks, an encoder and decoder that do not round-trip, a state machine that reaches a state the code assumes impossible | Lean 4 | Lean checks a bounded instance by evaluation in seconds and then proves the property for every size |
+
+A thread protocol that also carries arithmetic (slot = item mod window) gets both: TLA+ for the interleavings with the arithmetic as a constant, Lean for the arithmetic alone.
+
+Tooling. TLA+: Java and `tla2tools.jar`; [`scripts/tlc-matrix.sh`](scripts/tlc-matrix.sh) downloads the pinned jar, runs a matrix of constants and prints one PASS or FAIL line per run with its state count, and [`scripts/tlc-trace.py`](scripts/tlc-trace.py) reduces a counter-example to what each step changed. On macOS `/usr/bin/java` is a stub that prints "Unable to locate a Java Runtime" and some scripts still exit 0 after it, so set `JAVA=/opt/homebrew/opt/openjdk/bin/java` (or your JDK) and check that at least one PASS line printed. Lean: `elan` and `lake`; [`scripts/lean-check.sh`](scripts/lean-check.sh) builds a lake project and fails on any error or any theorem that still uses `sorry`, naming each; [`examples/lean-template/`](examples/lean-template/Model.lean) is a project that builds, with the shape every model copies.
 
 ## 1. Pick the targets
 
@@ -16,6 +25,7 @@ Grep for the primitives (`pthread_cond`, `pthread_mutex`, `atomic_`, `std::condi
 - **Hand-written protocol**: a hand-over, a bounded pipeline, a work queue with ordered output, shutdown or close, a fatal-error or cleanup lifecycle, a retry or lease loop. Model it.
 - **Data-parallel loop** over disjoint indices: not a protocol. Leave it to the sanitizer.
 - **Library-owned** (a channel, an executor): model only the code around it.
+- **Sequential arithmetic the protocol or the output depends on** (slot and splice indices, window bounds, a size computed one way and checked another, an encoder with a decoder): a Lean target (step 4). Also grep for `%`, `- 1`, `+ 1`, `>>`, `overlap`, `splice`, `offset` near the protocol's data.
 
 Write the protocol table before modelling: one row per protocol with its actors (threads), shared variables, every wait and what wakes it, the terminal states (joined, exited, closed), and the resources whose ownership moves (slots, buffers, file handles, the thing `close` frees). The rows with a wait that has no escape, a resource freed by two paths, or an error raised on a thread other than the one that reports it go first. Read the whole file for each protocol you model; a brief that paraphrases the code teaches the model the paraphrase.
 
@@ -44,13 +54,24 @@ For each violation, in this order:
 4. Fix the smallest thing the trace needs, mirror the change in the spec, rerun the whole matrix. The spec and the code are one change.
 5. One PR per bug. Land the spec, the matrix entry and the fix together, with the state counts and the mutant table in the body.
 
-## 4. Keep the proof
+## 4. Lean for the sequential core
 
-Add the specs to CI through `tlc-matrix.sh` with a matrix file beside them ([`examples/template.matrix`](examples/template.matrix) shows the three directives). Each spec's header comment names the code it models with line numbers; refresh those when the code moves. Record in the project's testing doc what each model checks and which configuration is the boundary.
+One agent per target, same as the TLA+ step, with this brief. Start from a copy of [`examples/lean-template/`](examples/lean-template/Model.lean): a `lakefile.toml`, a pinned `lean-toolchain`, no Mathlib unless the arithmetic needs it (a Mathlib dependency turns a ten-second build into an hour without the cache).
+
+1. **Transcribe, do not paraphrase.** Write the state type and each function from the code with the same arithmetic: the same integer width (`UInt32`, `Int` with explicit bounds, `Nat` only when the code cannot go negative), the same rounding and division, the same order of operations. Name the functions after the code's functions and cite `file:line` in a doc comment. A model that fixes the bug while transcribing proves nothing about the code.
+2. **State the property as a `Prop` with a `Decidable` instance.** The invariant a transform must keep, the round trip an encoder and decoder must close, the bound an index must respect, the set of states a machine must never reach.
+3. **Search before you prove.** Write a bounded exhaustive check as an executable (`badPairs` in the template: every state up to a size from which one step breaks the property) and `#eval` it. A non-empty list is the counter-example, with concrete values, in seconds. Set the bound above every constant the code uses (the slot count, the batch size, the window) so the boundary cases are inside it.
+4. **Prove for every size.** One theorem per step or function, by cases on the guards, closed with `simp only [...]` to expose the arithmetic and `omega` (or `decide` on a finite type). Leave `sorry` only where the proof needs a fact about the real code the model lacks, and name that fact in the comment; `lean-check.sh` lists every `sorry` as a FAIL, so the gap stays visible.
+5. **Mutate.** Change the model the way the bug would (`<` for `≤`, a missing `+ 1`, a swapped argument) and confirm the bounded search finds it and the theorem stops closing. A property no mutation disturbs is not yet a check.
+6. **Report** the counter-example as concrete inputs to the code's function, the `file:line` of the arithmetic it exposes, a unit test that feeds those inputs, and the fix. A closed proof reports which assumptions it rests on (the integer widths, the bounds taken as hypotheses).
+
+## 5. Keep the proof
+
+TLA+: add the specs to CI through `tlc-matrix.sh` with a matrix file beside them ([`examples/template.matrix`](examples/template.matrix) shows the three directives). Lean: keep the lake project in the repo and run `lean-check.sh <dir>` in CI; pin the toolchain. Each model's header comment names the code it models with line numbers; refresh those when the code moves. Record in the project's testing doc what each model checks and which configuration is the boundary.
 
 ## What this does not cover
 
-Data-flow and state invariants of sequential code (a parser, a schema, an arithmetic kernel) are a theorem-prover job, Lean or a property-based test, not TLC. Memory-model ordering below the mutex is outside every model here; keep the sanitizer. A model that passes shows the protocol as modelled is correct; the gap between the model and the code is exactly the list of "what the model lacks" in each report, so read that list before trusting a pass.
+Memory-model ordering below the mutex is outside every model here; keep the sanitizer. Floating-point results are modelled as the integers they round to, never as reals, unless the property is about the rounding itself. A model that passes shows the part as modelled is correct; the gap between the model and the code is exactly the list of "what the model lacks" and the hypotheses of the theorems in each report, so read those before trusting a pass.
 
 ## Reply
 
