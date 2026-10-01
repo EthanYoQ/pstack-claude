@@ -1,0 +1,20 @@
+# The matrix fast-beagle's tests/check-tla.sh runs. Paths are relative to this
+# file; copy it next to a tla/ directory to use it as a template.
+spec tla/ParallelOrdered.tla
+check INVARIANTS TypeOK WindowBound NoOverwrite ConsumesOwnItem InOrder
+check PROPERTIES Terminates AllConsumed
+run workers=1 items=3 window=1 | Workers={w1} NItems=3 Window=1
+run workers=2 items=4 window=1 | Workers={w1,w2} NItems=4 Window=1
+run workers=3 items=6 window=3 | Workers={w1,w2,w3} NItems=6 Window=3
+
+spec tla/BlockReader.tla
+check INVARIANTS TypeOK SlotsPartition ReaderSlotExclusive InOrder
+check PROPERTIES CloseTerminates WaitEnds Progress
+run slots=1 batches=3 close=any | Slots=1 NBatches=3 MayClose=TRUE
+run slots=4 batches=5 close=any | Slots=4 NBatches=5 MayClose=TRUE
+
+spec tla/SlidingWindow.tla
+check INVARIANTS TypeOK InOrder AheadNotGiven NoLeak ErrorAfterPrefix ErrorNoAhead
+check PROPERTIES CloseTerminates NextReturns ExitOnlyOnError
+run windows=4 failat={} | NWindows=4 FailAt={}
+run windows=4 failat=all | NWindows=4 FailAt={1,2,3,4}
