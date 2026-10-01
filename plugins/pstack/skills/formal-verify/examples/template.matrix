@@ -1,0 +1,19 @@
+# Matrix file for tlc-matrix.sh. Copy it next to the directory that holds the
+# specs and edit. Paths are relative to this file. A `spec` line resets the
+# `check` lines; each `run` is one TLC run with the CONSTANTS after the bar.
+
+spec tla/Pipeline.tla
+check INVARIANTS TypeOK SlotsPartition InOrder
+check PROPERTIES CloseTerminates NextReturns Progress
+# The shipped slot count and the boundary below it.
+run slots=1 items=3 close=any | Slots=1 NItems=3 MayClose=TRUE
+run slots=4 items=5 close=any | Slots=4 NItems=5 MayClose=TRUE
+run slots=4 items=5 close=never | Slots=4 NItems=5 MayClose=FALSE
+
+spec tla/HandOver.tla
+check INVARIANTS TypeOK InOrder NoDoubleFree NoLeak
+check PROPERTIES CloseTerminates NextReturns
+# A set-valued constant has no spaces; model values are bare names.
+run windows=4 failat=none | NWindows=4 FailAt={}
+run windows=4 failat=all | NWindows=4 FailAt={1,2,3,4}
+run workers=3 window=2 | Workers={w1,w2,w3} Window=2

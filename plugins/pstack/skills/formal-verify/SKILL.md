@@ -46,7 +46,7 @@ For each violation, in this order:
 
 ## 4. Keep the proof
 
-Add the specs to CI through `tlc-matrix.sh` with a matrix file beside them ([`examples/fast-beagle.matrix`](examples/fast-beagle.matrix) is a full one). Each spec's header comment names the code it models with line numbers; refresh those when the code moves. Record in the project's testing doc what each model checks and which configuration is the boundary.
+Add the specs to CI through `tlc-matrix.sh` with a matrix file beside them ([`examples/template.matrix`](examples/template.matrix) shows the three directives). Each spec's header comment names the code it models with line numbers; refresh those when the code moves. Record in the project's testing doc what each model checks and which configuration is the boundary.
 
 ## What this does not cover
 
