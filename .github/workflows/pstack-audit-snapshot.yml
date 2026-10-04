@@ -8,41 +8,19 @@ permissions:
   contents: read
 
 jobs:
-  snapshot:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  processes:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: dc8e617f179cf0bdc68b61e672f33e9eb64c20cf
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.3.14"
-      - name: Prepare public source snapshot and pinned dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/pstack-audit/pstack-claude /tmp/pstack-audit/bin /tmp/pstack-audit/cursor-pinned /tmp/pstack-audit/cursor-current
-          git archive HEAD | tar -x -C /tmp/pstack-audit/pstack-claude
-          cp "$(command -v bun)" /tmp/pstack-audit/bin/bun
-          cd /tmp/pstack-audit/pstack-claude
-          bun install --frozen-lockfile --ignore-scripts
-          (cd plugins/pstack/skills/poteto-mode/scripts && bun install --frozen-lockfile --ignore-scripts)
-          bun tools/generate.mjs --check
-          set +e
-          bun test tests/ > /tmp/pstack-audit/baseline-tests.log 2>&1
-          echo "$?" > /tmp/pstack-audit/baseline-tests-exit.txt
-          set -e
-          git clone --filter=blob:none --no-checkout https://github.com/cursor/plugins.git /tmp/cursor-source
-          git -C /tmp/cursor-source rev-parse e43c7ee > /tmp/pstack-audit/cursor-pinned-sha.txt
-          git -C /tmp/cursor-source rev-parse HEAD > /tmp/pstack-audit/cursor-current-sha.txt
-          git -C /tmp/cursor-source archive e43c7ee pstack | tar -x -C /tmp/pstack-audit/cursor-pinned
-          git -C /tmp/cursor-source archive HEAD pstack | tar -x -C /tmp/pstack-audit/cursor-current
-          tar -czf /tmp/pstack-audit-snapshot.tar.gz -C /tmp pstack-audit
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: pstack-audit-snapshot
-          path: /tmp/pstack-audit-snapshot.tar.gz
-          retention-days: 3
-          if-no-files-found: error
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun test tests/pi/process-lifecycle.test.mjs
