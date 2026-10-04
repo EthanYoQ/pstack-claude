@@ -112,8 +112,20 @@ export function lastChats(roots, paths) {
     return { path, windows, forms: windows ? forms.map((form) => form.toLowerCase()) : forms };
   });
   const latest = new Map();
+  const shortCwds = new Map();
   for (const root of roots) for (const file of transcriptFiles(root)) {
-    const text = transcriptText(file);
+    let text = transcriptText(file);
+    // Windows may record an 8.3 cwd (RUNNER~1) while Git lists the long path.
+    // Resolve each distinct short cwd once, through the same Git path source.
+    if (needles.some((needle) => needle.windows)) {
+      for (const [, encoded] of text.matchAll(/"cwd"\s*:\s*("(?:\\.|[^"\\])*")/g)) {
+        const cwd = probe(() => JSON.parse(encoded));
+        if (!cwd.known || !/^(?:[a-z]:[\\/]|\\\\).*~\d/i.test(cwd.value)) continue;
+        if (!shortCwds.has(cwd.value)) shortCwds.set(cwd.value, probe(() => git(cwd.value, "rev-parse", "--show-toplevel")));
+        const resolved = shortCwds.get(cwd.value);
+        if (resolved.known) text += `\n${JSON.stringify(resolved.value)}`;
+      }
+    }
     const folded = needles.some((needle) => needle.windows) ? text.toLowerCase() : text;
     const mtime = Math.floor(statSync(file).mtimeMs / 1000);
     for (const { path, windows, forms } of needles) {
