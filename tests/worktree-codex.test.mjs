@@ -44,7 +44,9 @@ for (const [directory, compressed] of [["sessions", false], ["archived_sessions"
     const output = audit({ repo: f.repo, transcripts: defaultTranscriptRoots({ home: f.home, env: {} }), gh: () => "[]" });
     const row = output.trimEnd().split("\n")[1].split("\t");
     expect(row[2]).toBe("YES");
-    expect(row[7]).toBe("verify-recent-chat");
+    const roots = defaultTranscriptRoots({ home: f.home, env: {} });
+    const evidence = { fixture: f.worktree, reported: row[8], lastChat: row[6], matches: [...lastChats(roots, [f.worktree, row[8]])] };
+    expect(row[7], JSON.stringify(evidence)).toBe("verify-recent-chat");
     expect(row[6]).not.toBe("-");
   });
 }
