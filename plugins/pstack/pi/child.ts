@@ -1,4 +1,5 @@
-import { type ChildProcessByStdio, spawn } from "node:child_process";
+import { type ChildProcessByStdio, spawn, spawnSync } from "node:child_process";
+import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import type { RpcCommand } from "@earendil-works/pi-coding-agent";
@@ -212,6 +213,14 @@ export function alive(pid: number): boolean {
 }
 
 export function signalGroup(pid: number, signal: NodeJS.Signals): void {
+  if (!Number.isSafeInteger(pid) || pid <= 1) return;
+  // Windows has no POSIX process groups or graceful SIGTERM. Stop the owned
+  // tree together, including on parent exit when no escalation timer can run.
+  if (process.platform === "win32") {
+    const command = join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe");
+    spawnSync(command, ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true, timeout: 5000 });
+    return;
+  }
   try {
     process.kill(-pid, signal);
   } catch {}

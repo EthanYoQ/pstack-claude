@@ -119,7 +119,14 @@ function childArgs(identity: AgentIdentity, depth: number): string[] {
 // A persisted pid may have been reused; only a process whose arguments carry
 // `--session-id <this agent's session>` as a pair is ours to kill.
 function runsSession(pid: number, sessionId: string): boolean {
-  const r = spawnSync("ps", ["-o", "args=", "-p", String(pid)], { encoding: "utf8" });
+  if (!Number.isSafeInteger(pid) || pid <= 1) return false;
+  const r = process.platform === "win32"
+    ? spawnSync(
+      join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+      ["-NoProfile", "-NonInteractive", "-Command", `(Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}' -ErrorAction Stop).CommandLine`],
+      { encoding: "utf8", windowsHide: true, timeout: 5000 },
+    )
+    : spawnSync("ps", ["-o", "args=", "-p", String(pid)], { encoding: "utf8" });
   if (r.status !== 0) return false;
   const args = r.stdout.trim().split(/\s+/);
   return args.some((arg, i) => arg === "--session-id" && args[i + 1] === sessionId);
