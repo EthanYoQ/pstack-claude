@@ -38,6 +38,9 @@ function runHook({ sheet, codexHome, homeSheet, context = mandate, host = "cmd" 
       CLAUDE_PLUGIN_ROOT: plugin,
       PSExecutionPolicyPreference: "Restricted",
     };
+    for (const name of ["TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "ProgramData", "PSModulePath"]) {
+      if (process.env[name] !== undefined) env[name] = process.env[name];
+    }
     if (codexHome !== undefined) env.CODEX_HOME = codexHome ? sheetRoot : "";
     const executable = host === "cmd" ? process.env.ComSpec ?? "cmd.exe" : "powershell.exe";
     const args = host === "cmd" ? ["/d", "/s", "/c", command] : ["-NoProfile", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")];
