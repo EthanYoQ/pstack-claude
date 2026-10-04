@@ -157,7 +157,7 @@ export function registerSchedule(pi: ExtensionAPI, scheduler: Scheduler, oneShot
           return;
         }
         case "dynamic":
-          scheduler.stopLoop();
+          scheduler.stopAll();
           await fire(dynamicPrompt(cmd.prompt));
       }
     },
