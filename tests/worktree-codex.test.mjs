@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { zstdCompressSync } from "node:zlib";
@@ -87,4 +87,15 @@ test("an unreadable compressed rollout makes the audit review, not safe", () => 
   const output = audit({ repo: f.repo, transcripts: [sessions], gh: () => "[]", warn: (line) => warnings.push(line) });
   expect(output.trimEnd().split("\n")[1].split("\t")[7]).toBe("review");
   expect(warnings.join("\n")).toContain("transcript scan failed");
+});
+
+
+test("a worktree alias matches the transcript's canonical directory", () => {
+  const root = temporary();
+  const target = join(root, "canonical");
+  const alias = join(root, "alias");
+  mkdirSync(target);
+  symlinkSync(target, alias, "junction");
+  transcript(join(root, "rollout.jsonl"), realpathSync(target));
+  expect(lastChats([root], [alias]).has(alias)).toBe(true);
 });
