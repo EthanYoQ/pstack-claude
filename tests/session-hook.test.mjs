@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { agentSkills } from "../tools/generate.mjs";
+import { sheetCases } from "./session-hook-sheets.mjs";
 
 const pluginRoot = fileURLToPath(new URL("../plugins/pstack/", import.meta.url));
 const mandate = readFileSync(join(pluginRoot, "hooks/session-start-context.md"), "utf8");
@@ -90,25 +91,11 @@ describe("SessionStart hook", () => {
         expect(runHook(runtime, null)).toEqual({ status: 0, out: mandate, err: "" });
       });
 
-      test("injects the mandate when the sheet has no session hook line", () => {
-        expect(runHook(runtime, "bug-fix: configured-model\n")).toEqual({ status: 0, out: mandate, err: "" });
-      });
-
-      test("injects the mandate when the sheet says on", () => {
-        expect(runHook(runtime, "bug-fix: configured-model\nsession hook: on\n")).toEqual({
-          status: 0,
-          out: mandate,
-          err: "",
+      for (const { name, sheet, off } of sheetCases) {
+        test(`${off ? "injects nothing" : "injects the mandate"} when the sheet has ${name}`, () => {
+          expect(runHook(runtime, sheet)).toEqual({ status: 0, out: off ? "" : mandate, err: "" });
         });
-      });
-
-      test("injects nothing when the sheet says off", () => {
-        expect(runHook(runtime, "bug-fix: configured-model\nsession hook: off\n")).toEqual({
-          status: 0,
-          out: "",
-          err: "",
-        });
-      });
+      }
     });
   }
 });
