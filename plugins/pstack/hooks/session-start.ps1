@@ -10,4 +10,4 @@ if ((Test-Path -LiteralPath $sheet) -and ([System.IO.File]::ReadAllLines($sheet)
 }
 
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-[Console]::Write([System.IO.File]::ReadAllText((Join-Path $env:CLAUDE_PLUGIN_ROOT 'hooks/session-start-context.md'), [System.Text.Encoding]::UTF8))
+[Console]::Write([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'session-start-context.md'), [System.Text.Encoding]::UTF8))

@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { sheetCases } from "./session-hook-sheets.mjs";
+
 const pluginRoot = fileURLToPath(new URL("../plugins/pstack/", import.meta.url));
 const manifest = JSON.parse(readFileSync(join(pluginRoot, ".codex-plugin/plugin.json"), "utf8"));
 const handler = JSON.parse(readFileSync(join(pluginRoot, manifest.hooks), "utf8")).hooks.SessionStart[0].hooks[0];
@@ -26,7 +28,7 @@ function runHook({ sheet, codexHome, homeSheet, context = mandate, host = "cmd" 
     const contextPath = join(plugin, "hooks/session-start-context.md");
     if (context === null) rmSync(contextPath);
     else writeFileSync(contextPath, context);
-    const command = (handler.commandWindows ?? handler.command).replaceAll("${CLAUDE_PLUGIN_ROOT}", plugin);
+    const command = handler.commandWindows.replaceAll("${CLAUDE_PLUGIN_ROOT}", plugin);
     const env = {
       SystemRoot: process.env.SystemRoot,
       PATH: join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0"),
@@ -51,7 +53,11 @@ function runHook({ sheet, codexHome, homeSheet, context = mandate, host = "cmd" 
   }
 }
 
-describe.skipIf(process.platform !== "win32")("Windows Codex SessionStart hook", () => {
+// CI's Windows job sets this, so a platform check that misfires fails there
+// instead of skipping every test.
+const required = process.env.PSTACK_REQUIRE_WINDOWS_HOOK === "1";
+
+describe.skipIf(process.platform !== "win32" && !required)("Windows Codex SessionStart hook", () => {
   test("injects the shared context without a sheet or Bash", () => {
     expect(runHook()).toEqual({ status: 0, out: mandate, err: "" });
     const result = runHook({ host: "powershell" });
@@ -73,13 +79,11 @@ describe.skipIf(process.platform !== "win32")("Windows Codex SessionStart hook",
     });
   });
 
-  test("only an exact off line disables injection", () => {
-    for (const sheet of ["session hook: off", "bug-fix: model\nsession hook: off\n", "session hook: off\r\n"]) {
-      expect(runHook({ sheet })).toEqual({ status: 0, out: "", err: "" });
-    }
-    const sheet = ["Session hook: off", "session hook: OFF", " session hook: off", "session hook: off ", "session hook: offline"].join("\n");
-    expect(runHook({ sheet })).toEqual({ status: 0, out: mandate, err: "" });
-  });
+  for (const { name, sheet, off } of sheetCases) {
+    test(`${off ? "injects nothing" : "injects the context"} when the sheet has ${name}`, () => {
+      expect(runHook({ sheet })).toEqual({ status: 0, out: off ? "" : mandate, err: "" });
+    });
+  }
 
   test("writes UTF-8 context without an added newline", () => {
     const context = "Routing context: 中文 café 🚀";

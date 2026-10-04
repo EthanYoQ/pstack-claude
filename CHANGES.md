@@ -2,6 +2,12 @@
 
 This file is the release changelog, with one `## <version> - <title>` entry per release, newest first. The Cursor-to-Claude rewrite rules live in [`tools/substitutions.json`](tools/substitutions.json), and the [sync boundary](CONTRIBUTING.md#the-sync-boundary) in `CONTRIBUTING.md` defines how a change to upstream's skill content is declared.
 
+## 0.9.66 - Windows Codex SessionStart hook
+
+The Codex plugin's `SessionStart` hook now runs on Windows. `codex-hooks.json` adds a `commandWindows` override that runs `session-start.ps1` through PowerShell, so Windows Codex loads the routing instruction without Bash (#171). Windows users must trust the changed hook again through `/hooks`.
+
+`session-start.sh` now treats a `session hook: off` line with CRLF endings as off, matching the PowerShell adapter and Pi. One table in `tests/session-hook-sheets.mjs` holds the off-switch cases, and the POSIX hook, the PowerShell adapter, and Pi's sheet parser all run against it. A new Windows CI job runs the adapter's tests and fails instead of skipping if they do not run.
+
 ## 0.9.65 - sync to upstream e43c7ee (v0.15.9)
 
 The upstream pin moves from `23e4138` to `e43c7ee`, upstream v0.15.9, three commits. The first adds the `/correct` skill. It finds the mistakes agents keep repeating in a repo and fixes each class at the highest level that works: architecture first, then types and lint, then a test, with docs last. The package now carries 33 public skills and 24 principles.

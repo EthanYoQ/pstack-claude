@@ -43,7 +43,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Test Windows session hooks
-        run: bun test tests/session-hook-windows.test.mjs tests/generate.test.mjs -t 'Windows Codex SessionStart hook|validateHooks'
+        run: bun test tests/session-hook-windows.test.mjs
+        env:
+          PSTACK_REQUIRE_WINDOWS_HOOK: "1"
 
   forks:
     name: Fork registry
