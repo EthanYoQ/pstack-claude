@@ -101,7 +101,10 @@ function transcriptText(file) {
 export function lastChats(roots, paths) {
   const needles = paths.map((path) => {
     const windows = /^(?:[a-z]:[\\/]|\\\\|\/\/)/i.test(path);
-    const variants = windows ? [path.replaceAll("\\", "/"), path.replaceAll("/", "\\")] : [path];
+    // Git and Windows can report different aliases for the same directory.
+    const canonical = probe(() => realpathSync(path));
+    const aliases = canonical.known ? [path, canonical.value] : [path];
+    const variants = aliases.flatMap((value) => windows ? [value.replaceAll("\\", "/"), value.replaceAll("/", "\\")] : [value]);
     const forms = variants.flatMap((value) => {
       const separator = windows && value.includes("\\") ? "\\" : "/";
       return [JSON.stringify(value).slice(1), JSON.stringify(`${value}${separator}`).slice(1, -1)];
