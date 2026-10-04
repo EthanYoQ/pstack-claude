@@ -7,19 +7,19 @@
 //   node worktree-audit.mjs [repo-path] [transcripts-path ...]
 //
 // Without a transcripts path it scans every runtime's transcripts directory
-// that exists: Claude Code's ~/.claude/projects, and Pi's sessions and pstack
+// that exists: Claude Code's ~/.claude/projects, Codex's sessions and archived
+// sessions under $CODEX_HOME (default ~/.codex), and Pi's sessions and pstack
 // subagent sessions under $PI_CODING_AGENT_DIR (default ~/.pi/agent).
 //
 // Every probe yields a Fact, { known: true, value } or { known: false }. A hold
 // bucket needs only its own fact; `safe` needs every fact known.
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-
-import { candidates } from "../../reflect/scripts/find-transcript.mjs";
+import * as zlib from "node:zlib";
 
 const known = (value) => ({ known: true, value });
 const UNKNOWN = Object.freeze({ known: false });
@@ -72,21 +72,49 @@ export function parseWorktrees(output) {
 export function defaultTranscriptRoots({ env = process.env, home = homedir(), exists = existsSync } = {}) {
   const claude = join(home, ".claude", "projects");
   const piAgent = env.PI_CODING_AGENT_DIR || join(home, ".pi", "agent");
-  const found = [claude, join(piAgent, "sessions"), join(piAgent, "pstack")].filter((root) => exists(root));
+  const codex = env.CODEX_HOME || join(home, ".codex");
+  const found = [claude, join(codex, "sessions"), join(codex, "archived_sessions"), join(piAgent, "sessions"), join(piAgent, "pstack")]
+    .filter((root) => exists(root));
   return found.length ? found : [claude];
 }
 
-// A transcript names a worktree as `<path>/` or `<path>"`, never a bare prefix,
-// so `/x/candidate` does not inherit a chat that ran in `/x/candidate-long`.
-// Claude Code and Pi transcripts are both JSONL that quote the paths they touch.
+// Codex may compress cold rollouts in place. An unreadable representation must
+// fail the scan rather than make its worktree look inactive.
+function* transcriptFiles(root) {
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) yield* transcriptFiles(path);
+    else if (entry.isFile() && /\.jsonl(?:\.zst)?$/.test(entry.name)) yield path;
+  }
+}
+
+function transcriptText(file) {
+  const bytes = readFileSync(file);
+  if (!file.endsWith(".zst")) return bytes.toString("utf8");
+  if (typeof zlib.zstdDecompressSync !== "function") throw new Error(`reading ${file} needs a runtime with Zstandard support`);
+  return zlib.zstdDecompressSync(bytes, { maxOutputLength: 256 * 1024 * 1024 }).toString("utf8");
+}
+
+// Keep the path boundary so candidate does not inherit candidate-long's chat.
+// JSON escapes backslashes and quotes; Windows also varies slash direction and
+// case between git's porcelain output and the runtime's recorded cwd.
 export function lastChats(roots, paths) {
-  const needles = paths.map((path) => [path, [Buffer.from(`${path}/`), Buffer.from(`${path}"`)]]);
+  const needles = paths.map((path) => {
+    const windows = /^(?:[a-z]:[\\/]|\\\\|\/\/)/i.test(path);
+    const variants = windows ? [path.replaceAll("\\", "/"), path.replaceAll("/", "\\")] : [path];
+    const forms = variants.flatMap((value) => {
+      const separator = windows && value.includes("\\") ? "\\" : "/";
+      return [JSON.stringify(value).slice(1), JSON.stringify(`${value}${separator}`).slice(1, -1)];
+    });
+    return { path, windows, forms: windows ? forms.map((form) => form.toLowerCase()) : forms };
+  });
   const latest = new Map();
-  for (const file of roots.flatMap((root) => candidates(root, Infinity))) {
-    const text = readFileSync(file);
+  for (const root of roots) for (const file of transcriptFiles(root)) {
+    const text = transcriptText(file);
+    const folded = needles.some((needle) => needle.windows) ? text.toLowerCase() : text;
     const mtime = Math.floor(statSync(file).mtimeMs / 1000);
-    for (const [path, forms] of needles) {
-      if (mtime > (latest.get(path) ?? 0) && forms.some((form) => text.includes(form))) latest.set(path, mtime);
+    for (const { path, windows, forms } of needles) {
+      if (mtime > (latest.get(path) ?? 0) && forms.some((form) => (windows ? folded : text).includes(form))) latest.set(path, mtime);
     }
   }
   return latest;
