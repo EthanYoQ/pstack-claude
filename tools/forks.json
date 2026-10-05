@@ -122,7 +122,7 @@
     },
     "plugins/pstack/skills/poteto-mode/scripts/orch/store.ts": {
       "kind": "policy",
-      "why": "Adds four guards: temp-file cleanup that cannot mask the write error, single-line status table cells, rejection of nested-paren gt status rows, and rejection of leading-dash branch names.",
+      "why": "Adds guards for temp-file cleanup, single-line status table cells, nested-paren gt status rows, leading-dash branch names, and frontier SHAs resolved from exact local branch refs.",
       "since": "0.9.13",
       "upstream": "not-proposed"
     },
