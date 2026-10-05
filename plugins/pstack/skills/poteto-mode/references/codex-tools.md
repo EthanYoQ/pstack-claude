@@ -4,6 +4,8 @@ pstack skills are written in Claude Code tool language (the `Skill` tool, the `A
 
 ## Tool actions
 
+The current session's exposed tools and their schemas are authoritative. The names below are equivalents, not a promise that every Codex host exposes them. Use only supported actions and arguments.
+
 | pstack / Claude action | Codex equivalent |
 |------------------------|------------------|
 | Read a file | `shell` (`cat`, `head`, `tail`) |
@@ -14,9 +16,9 @@ pstack skills are written in Claude Code tool language (the `Skill` tool, the `A
 | Search the web | `web_search` |
 | Invoke a skill (the `Skill` tool, `/command`) | Skills load natively. Follow the instructions presented. |
 | Dispatch a subagent (the `Agent`/`Task` tool) | `spawn_agent` |
-| Dispatch N parallel subagents in one turn | N `spawn_agent` calls in one response |
+| Dispatch N parallel subagents in one turn | `spawn_agent` calls within available capacity; see Capacity and independent reviews below |
 | Wait for a subagent result | `wait_agent` |
-| Free a finished subagent slot | `close_agent` |
+| Free a finished subagent slot | `close_agent` only if exposed by this session; confirm the result actually releases capacity |
 | Track tasks (the todolist; `TaskCreate` / `TaskUpdate`, or `TodoWrite` on Claude Code) | `update_plan` |
 | Ask the human a fixed-choice question (`AskUserQuestion`) | Ask in plain text and let the user answer. Codex has no structured-choice tool. |
 
@@ -27,7 +29,7 @@ Subagent dispatch needs `multi_agent` enabled. Add to `~/.codex/config.toml`:
 multi_agent = true
 ```
 
-Without it, `spawn_agent` is unavailable and the fan-out skills (`interrogate`, `why`, `how`, `arena`, `reflect`) degrade to a single sequential pass.
+Without it, `spawn_agent` is unavailable. Exploratory work may use a labelled single-agent sequential pass. A required independent review remains blocked; follow Capacity and independent reviews below. Enabling `multi_agent` does not remove the host's thread limits or guarantee a close or reuse tool.
 
 ## Subagent policy
 
@@ -38,7 +40,17 @@ poteto-mode's Subagents section sets Claude-specific defaults (`subagent_type: "
 - There are no `pstack:effort-<level>` or `pstack:poteto-agent-<level>` types. When a role value carries `@<level>`, or the `default effort` line names a level, pass that level as `spawn_agent`'s `reasoning_effort` and keep the dispatch otherwise unchanged. `session` passes no `reasoning_effort`.
 - There is no `comment-sicko` subagent type either. The **no-comments** skill spawns it on Claude Code; on Codex dispatch a `spawn_agent` whose instructions tell it to read `poteto-mode/references/agents/comment-sicko.md` in full first.
 - Claude Code runs every subagent on this machine, so the **swarm** skill's workers and the fan-out playbooks (`orchestrate`, `autopilot-full`, `autopilot-stack`) isolate writers with worktrees. The same holds on Codex.
-- Keep the rest of the policy unchanged. Pass file pointers not inlined context, give each worker its own worktree or branch when they write, review every subagent's diff yourself.
+- Apply the capacity exception below before the fresh-subagent default or a skill's fan-out instructions. Keep the rest of the policy unchanged. Pass file pointers not inlined context, give each worker its own worktree or branch when they write, review every subagent's diff yourself.
+
+### Capacity and independent reviews
+
+This Codex-specific exception overrides the fresh-subagent default when the host cannot create another thread. It does not waive a required independent review or panel.
+
+1. **Check capabilities and existing work.** Inspect the available dispatch, wait, status, follow-up/resume, and close actions. Use a roster or status tool if exposed; otherwise use the agent IDs and results already returned. Do not guess a tool name or thread limit. Keep results from reviewers already dispatched. A completion notification alone does not prove its work or children have stopped. Wait for active work where useful; do not abandon or stop unrelated agents to make room.
+2. **Stop on capacity rejection.** A thread or agent limit is a capacity error, not a rejected model slug. After the first capacity rejection, stop new spawn attempts until capacity is observably available. Do not loop on spawn, change models, or launch another batch to probe the same limit. Close only a finished, idle agent through an exposed close action, after preserving its result and confirming it holds no work or children. If no close tool is exposed, no slot-release action is available. Do not invent one or assume waiting, interrupting, or a completed status frees a slot.
+3. **Reuse only an eligible reviewer.** Reuse a finished reviewer only if the host exposes a supported follow-up or resume action and the agent has no active work or children. It must not have written or modified the change under review, and its actual model and capabilities must satisfy the assigned review role. Send the complete current brief, rubric, file pointers, and exact head/base revisions; request a new review of that scope rather than treating an earlier verdict as current. Record that the reviewer was reused. A reused reviewer counts once, not as multiple independent reviewers or models. Do not reuse an author as its own independent reviewer or assume an unavailable resume action exists.
+4. **Preserve the review gate.** If no eligible reviewer can be dispatched or reused, record `BLOCKED: independent review` in the task checklist and report it to the user. Continue authorized work that does not depend on that review, such as implementation, tests, or collecting evidence. Do not turn the lead agent's self-review, passing tests, or CI into an independent verdict. Keep review-dependent completion, merge-ready, and shipping gates closed. Report requested, completed, and missing reviewers, their identities/models, and any reuse or reduced diversity. Do not describe an incomplete panel as complete or independent review as passed.
+5. **Name the recovery condition.** Record the runtime error, missing review scope, affected revisions, and recovery condition. Resume only when the host confirms capacity for the missing reviewer or an eligible reviewer becomes reusable through a supported action. If neither is possible in this session, preserve a handoff for the user to resume in a session with the required capacity. Do not raise platform limits, change execution environments, or bypass permission and safety gates. A permission denial is not a capacity fallback; stop the denied action and report the authorization needed.
 
 ## Model names
 
