@@ -81,24 +81,15 @@ export function defaultTranscriptRoots({ env = process.env, home = homedir(), ex
 
 // A transcript names a worktree as `<path>/` or `<path>"`, never a bare prefix,
 // so `/x/candidate` does not inherit a chat that ran in `/x/candidate-long`.
-// JSONL escapes quotes, backslashes, and control characters in paths. Git on
-// Windows may spell a path with forward slashes while the session uses backslashes.
+// Only JSONL is scanned, so a path appears only JSON-escaped. Git on Windows may
+// spell a path with forward slashes while the session uses backslashes.
 function transcriptNeedles(path) {
   const windows = /^(?:[a-z]:[\\/]|\\\\|\/\/)/i.test(path);
   const spellings = windows ? [path.replaceAll("\\", "/"), path.replaceAll("/", "\\")] : [path];
-  const forms = new Set();
-  for (const spelling of spellings) {
-    const escaped = JSON.stringify(spelling).slice(1, -1);
-    for (const value of [spelling, escaped]) {
-      forms.add(`${value}/`);
-      forms.add(`${value}"`);
-    }
-    if (windows) {
-      forms.add(`${spelling}\\`);
-      forms.add(`${escaped}\\\\`);
-    }
-  }
-  return [...forms].map((form) => Buffer.from(form));
+  return spellings.flatMap((spelling) => {
+    const json = JSON.stringify(spelling).slice(1, -1);
+    return ["/", '"', "\\\\"].map((end) => Buffer.from(json + end));
+  });
 }
 
 export function lastChats(roots, paths) {
