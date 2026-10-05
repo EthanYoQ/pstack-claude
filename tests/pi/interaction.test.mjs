@@ -253,6 +253,15 @@ describe("/loop", () => {
     expect(pi.userMessages.map((m) => m.content)).toEqual(["old task", expect.stringContaining("new task\n")]);
   });
 
+  test("a new fixed loop cancels the previous loop's pending wakeup and interval", async () => {
+    const { pi, ctx, run } = loop();
+    await pi.call("schedule_wakeup", { delaySeconds: 60, prompt: "/loop watch old PR" }, ctx);
+    await run("1m old task");
+    await run("2m new task");
+    jest.advanceTimersByTime(120_000);
+    expect(pi.userMessages.map((m) => m.content)).toEqual(["old task", "new task", "new task"]);
+  });
+
   for (const mode of ["print", "json"]) {
     test(`in ${mode} mode /loop returns only once the run it started settles, since pi disposes the session when it returns`, async () => {
       const { pi, ctx, run } = loop({ mode });
