@@ -74,7 +74,7 @@ describe("ask_user_question", () => {
     const result = await pi.call("ask_user_question", { questions: [q(), q({ question: "Cache?" }), q({ question: "Queue?" })] }, ctx);
     expect(result.details).toEqual({ answers: [{ question: "Which store?", answer: "Postgres" }], dismissed: true });
     expect(result.content[0].text).toContain('"Which store?"="Postgres"');
-    expect(result.content[0].text).toContain("dismissed");
+    expect(result.content[0].text).toContain("The user dismissed the remaining questions without answering.");
     expect(result.content[0].text).not.toContain('"Cache?"=');
     expect(result.content[0].text).not.toContain('"Queue?"=');
     expect(ui.calls.map((c) => c.title)).toEqual(["Store: Which store?", "Store: Cache?"]);
