@@ -45,7 +45,12 @@ if (args.some(a => a.includes('query PullRequestFacts'))) {
   value = [{ name: 'ci', state: 'SUCCESS', bucket: 'pass', description: '', link: '', workflow: '' }];
 } else if (args.some(a => a.includes('query PrCheckRollup'))) {
   if (scenario === 'no-ci-rollup-fails') fail('HTTP 502: Bad Gateway (https://api.github.com/graphql)');
-  value = { data: { repository: { pullRequest: { commits: { nodes: [{ commit: { statusCheckRollup: null } }] } } } } };
+  value = { data: { repository: { pullRequest: { commits: { nodes: [{ commit: { oid: 'head', statusCheckRollup: null } }] } } } } };
+} else if (args.some(a => a.endsWith('/check-suites?per_page=100'))) {
+  if (scenario === 'no-ci-suites-fail') fail('HTTP 403: check suites unavailable');
+  const suites = scenario === 'no-ci-owner-approval'
+    ? [{ head_sha: 'head', status: 'completed', conclusion: 'action_required' }] : [];
+  value = [{ total_count: suites.length, check_suites: suites }];
 } else if (noCi && args.some(a => a.includes('query PrCommitStatuses'))) {
   value = { data: { repository: { pullRequest: { commits: { nodes: [{ commit: { oid: 'head', statusCheckRollup: null } }] } } } } };
 } else if (args[0] === 'pr' && args[1] === 'list') {
@@ -177,7 +182,11 @@ it("keeps a PR with no checks waiting through short-interval polls until the dea
 });
 
 it("fails closed when the check queries fail instead of reporting no checks", () => {
-  for (const scenario of ["no-ci-unauthorized", "no-ci-rollup-fails"]) {
+  for (const scenario of [
+    "no-ci-unauthorized",
+    "no-ci-rollup-fails",
+    "no-ci-suites-fail",
+  ]) {
     const result = run(scenario, ["--status-only", "--max-query-errors", "1"]);
     expect(result.status).toBe(7);
     expect(JSON.parse(result.stdout.trim())).toMatchObject({
@@ -208,4 +217,18 @@ it("cancels an in-flight command at the CLI deadline", () => {
   expect(JSON.parse(result.stdout.trim())).toMatchObject({ kind: "TIMEOUT" });
   const pid = Number(readFileSync(result.pidFile, "utf8"));
   expect(() => process.kill(pid, 0)).toThrow();
+});
+
+it("does not report approval-gated Actions as a repository without CI", () => {
+  const result = run("no-ci-owner-approval", [
+    "--status-only",
+    "--max-query-errors",
+    "1",
+  ]);
+  expect(result.status).toBe(7);
+  expect(JSON.parse(result.stdout.trim())).toMatchObject({
+    kind: "BLOCKER",
+    blocker: { kind: "status-query", failure: { kind: "checks-unavailable" } },
+  });
+  expect(result.stdout).toContain("requires maintainer approval");
 });
